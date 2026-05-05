@@ -14,10 +14,10 @@ type Rule = {
 };
 
 const RULES: Rule[] = [
-  // Descriptor pairings
+  // Descriptor pairings (checked first so "any → descriptor" beats narrower rules below)
   { from: ['descriptor'],              to: ['descriptor'], prefer: ['foil-of'] },
-  { from: ['character', 'location'],   to: ['descriptor'], prefer: ['is', 'describes'] },
-  { from: ['descriptor'],              to: ['character', 'location'], prefer: ['describes', 'is'] },
+  { from: '*',                         to: ['descriptor'], prefer: ['is', 'describes'] },
+  { from: ['descriptor'],              to: '*',            prefer: ['is', 'describes'] },
 
   // Appearances in narrative units
   { from: ['character', 'object'],     to: ['scene', 'beat'], prefer: ['appears-in'] },

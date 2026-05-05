@@ -10,8 +10,12 @@ export function Library() {
   const activeCanvasId = useProjectStore((s) => s.activeCanvasId);
   const openDetail = useProjectStore((s) => s.openDetail);
 
+  const typeFilter = useProjectStore((s) => s.typeFilter);
+  const toggleTypeFilter = useProjectStore((s) => s.toggleTypeFilter);
+  const setAllTypesVisible = useProjectStore((s) => s.setAllTypesVisible);
+  const setNoTypesVisible = useProjectStore((s) => s.setNoTypesVisible);
+
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<Set<CardType>>(new Set());
   const [tagFilter, setTagFilter] = useState<string>('');
 
   const placedCardIds = useMemo(
@@ -28,7 +32,7 @@ export function Library() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return cards
-      .filter((c) => (typeFilter.size === 0 ? true : typeFilter.has(c.type)))
+      .filter((c) => typeFilter.has(c.type))
       .filter((c) => (tagFilter ? c.tags.includes(tagFilter) : true))
       .filter((c) => {
         if (!q) return true;
@@ -36,15 +40,6 @@ export function Library() {
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [cards, search, typeFilter, tagFilter]);
-
-  function toggleType(t: CardType) {
-    setTypeFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(t)) next.delete(t);
-      else next.add(t);
-      return next;
-    });
-  }
 
   async function handleDelete(cardId: string) {
     if (!projectId) return;
@@ -66,18 +61,36 @@ export function Library() {
           placeholder="Search title and body…"
           className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none"
         />
-        <div className="mt-2 flex flex-wrap gap-1">
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-slate-500">Visible types</span>
+          <div className="flex gap-1">
+            <button
+              onClick={setAllTypesVisible}
+              className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] hover:bg-slate-800"
+            >
+              All
+            </button>
+            <button
+              onClick={setNoTypesVisible}
+              className="rounded border border-slate-700 px-1.5 py-0.5 text-[10px] hover:bg-slate-800"
+            >
+              None
+            </button>
+          </div>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1">
           {CARD_TYPES.map((t) => {
             const active = typeFilter.has(t);
             return (
               <button
                 key={t}
-                onClick={() => toggleType(t)}
+                onClick={() => toggleTypeFilter(t)}
                 className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
                 style={{
                   backgroundColor: active ? CARD_TYPE_META[t].color : 'transparent',
                   color: active ? '#0f172a' : CARD_TYPE_META[t].color,
                   border: `1px solid ${CARD_TYPE_META[t].color}`,
+                  opacity: active ? 1 : 0.55,
                 }}
               >
                 {t}
@@ -102,7 +115,9 @@ export function Library() {
       <ul className="flex-1 overflow-auto">
         {filtered.length === 0 && (
           <li className="p-4 text-center text-xs text-slate-500">
-            No cards yet. Drag a chip from the top toolbar onto the canvas, or onto an existing card.
+            {cards.length === 0
+              ? 'No cards yet. Drag a chip from the top toolbar onto the canvas.'
+              : 'No cards match the current filters.'}
           </li>
         )}
         {filtered.map((c) => {

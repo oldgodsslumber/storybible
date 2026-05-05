@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { CARD_TYPES, CARD_TYPE_META, type CardType } from '@/schemas';
+import { connectionPrefix } from '@/schemas/connectionType';
 import { updateCard, deleteCard, createPlacement, deletePlacement, deleteConnection } from '@/firebase/db';
 import { keyedDebounce } from '@/lib/debounce';
 import { useClickAway } from '@/lib/useClickAway';
@@ -45,43 +46,57 @@ export function CardDetail() {
     [project],
   );
 
-  // Connections involving this card. Each row reads as the full directional
-  // sentence "<from> <label> <to>" — never reordered — so direction is
-  // unambiguous regardless of which endpoint you're viewing.
+  // Connections involving this card, prepared for sentence-style rendering:
+  // "<left-title> [prefix] <label> <right-title>". Stored direction is
+  // preserved EXCEPT when exactly one endpoint is a descriptor — in that
+  // case the descriptor is forced to the right so it always reads as
+  // "<thing> is <descriptor>".
   const related = useMemo(() => {
     if (!card) return [] as Array<{
       id: string;
       label: string;
+      prefix: string;
       color: string;
-      fromCardId: string;
-      toCardId: string;
-      fromTitle: string;
-      toTitle: string;
-      currentIsFrom: boolean;
+      leftCardId: string;
+      leftTitle: string;
+      rightCardId: string;
+      rightTitle: string;
+      currentIsLeft: boolean;
     }>;
     return connections
       .filter((c) => c.fromCardId === card.id || c.toCardId === card.id)
       .map((c) => {
         const t = typeById.get(c.type);
+        const fromCard = cardById.get(c.fromCardId);
+        const toCard = cardById.get(c.toCardId);
+        const fromIsDescriptor = fromCard?.type === 'descriptor';
+        const toIsDescriptor = toCard?.type === 'descriptor';
+        const flipForDescriptor = fromIsDescriptor !== toIsDescriptor && fromIsDescriptor;
+        // Display order:
+        // - default: left = from, right = to
+        // - if exactly one side is a descriptor, force descriptor to the right
+        const leftCardId = flipForDescriptor ? c.toCardId : c.fromCardId;
+        const rightCardId = flipForDescriptor ? c.fromCardId : c.toCardId;
+        const leftTitle = (cardById.get(leftCardId)?.title) || '(untitled)';
+        const rightTitle = (cardById.get(rightCardId)?.title) || '(untitled)';
         const label = c.label || t?.label || c.type;
-        const fromTitle = cardById.get(c.fromCardId)?.title || '(untitled)';
-        const toTitle = cardById.get(c.toCardId)?.title || '(untitled)';
+        const prefix = connectionPrefix(t, c.type);
         return {
           id: c.id,
           label,
+          prefix,
           color: t?.color ?? '#94a3b8',
-          fromCardId: c.fromCardId,
-          toCardId: c.toCardId,
-          fromTitle,
-          toTitle,
-          currentIsFrom: c.fromCardId === card.id,
+          leftCardId,
+          leftTitle,
+          rightCardId,
+          rightTitle,
+          currentIsLeft: leftCardId === card.id,
         };
       })
       .sort((a, b) => {
-        // Outgoing first, then incoming, then by other-card title.
-        if (a.currentIsFrom !== b.currentIsFrom) return a.currentIsFrom ? -1 : 1;
-        const aOther = a.currentIsFrom ? a.toTitle : a.fromTitle;
-        const bOther = b.currentIsFrom ? b.toTitle : b.fromTitle;
+        if (a.currentIsLeft !== b.currentIsLeft) return a.currentIsLeft ? -1 : 1;
+        const aOther = a.currentIsLeft ? a.rightTitle : a.leftTitle;
+        const bOther = b.currentIsLeft ? b.rightTitle : b.leftTitle;
         return aOther.localeCompare(bOther);
       });
   }, [connections, card, cardById, typeById]);
@@ -188,9 +203,9 @@ export function CardDetail() {
           ) : (
             <ul className="divide-y divide-slate-800 rounded border border-slate-800">
               {related.map((r) => {
-                const fromIsCurrent = r.currentIsFrom;
-                const fromOnClick = fromIsCurrent ? undefined : () => openDetail(r.fromCardId);
-                const toOnClick = !fromIsCurrent ? undefined : () => openDetail(r.toCardId);
+                const leftIsCurrent = r.currentIsLeft;
+                const onLeftClick = leftIsCurrent ? undefined : () => openDetail(r.leftCardId);
+                const onRightClick = leftIsCurrent ? () => openDetail(r.rightCardId) : undefined;
                 return (
                   <li
                     key={r.id}
@@ -198,34 +213,31 @@ export function CardDetail() {
                   >
                     <button
                       type="button"
-                      onClick={fromOnClick}
-                      disabled={fromIsCurrent}
+                      onClick={onLeftClick}
+                      disabled={leftIsCurrent}
                       className={
                         'truncate text-left ' +
-                        (fromIsCurrent
-                          ? 'italic text-slate-500'
-                          : 'text-slate-100 hover:underline')
+                        (leftIsCurrent ? 'italic text-slate-500' : 'text-slate-100 hover:underline')
                       }
-                      title={fromIsCurrent ? 'this card' : `Open ${r.fromTitle}`}
+                      title={leftIsCurrent ? 'this card' : `Open ${r.leftTitle}`}
                     >
-                      {r.fromTitle}
+                      {r.leftTitle}
                     </button>
+                    {r.prefix && <span className="text-slate-400">{r.prefix}</span>}
                     <span style={{ color: r.color }} className="font-medium">
                       {r.label}
                     </span>
                     <button
                       type="button"
-                      onClick={toOnClick}
-                      disabled={!fromIsCurrent}
+                      onClick={onRightClick}
+                      disabled={!leftIsCurrent}
                       className={
                         'truncate text-left ' +
-                        (!fromIsCurrent
-                          ? 'italic text-slate-500'
-                          : 'text-slate-100 hover:underline')
+                        (!leftIsCurrent ? 'italic text-slate-500' : 'text-slate-100 hover:underline')
                       }
-                      title={!fromIsCurrent ? 'this card' : `Open ${r.toTitle}`}
+                      title={!leftIsCurrent ? 'this card' : `Open ${r.rightTitle}`}
                     >
-                      {r.toTitle}
+                      {r.rightTitle}
                     </button>
                     <button
                       onClick={() => deleteConnection(projectId!, r.id)}

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { CARD_TYPE_META, type Card } from '@/schemas';
 import { useProjectStore } from '@/store/projectStore';
@@ -15,9 +15,25 @@ function CardNodeImpl({ data, selected }: NodeProps<CardNodeData>) {
   const togglePlacementExpanded = useProjectStore((s) => s.togglePlacementExpanded);
   const openDetail = useProjectStore((s) => s.openDetail);
 
+  // Single click toggles expand; double click opens the detail panel.
+  // Debounce the single-click action so a double click cancels the toggle.
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   function onCardClick(e: React.MouseEvent) {
     if (e.altKey) return; // alt-drag handled at canvas level
-    togglePlacementExpanded(data.placementId);
+    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => {
+      togglePlacementExpanded(data.placementId);
+      clickTimerRef.current = null;
+    }, 220);
+  }
+
+  function onCardDoubleClick() {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    openDetail(card.id);
   }
 
   function onOpenDetail(e: React.MouseEvent) {
@@ -32,6 +48,7 @@ function CardNodeImpl({ data, selected }: NodeProps<CardNodeData>) {
       className={'sb-card-node group' + (selected ? ' selected' : '')}
       style={{ borderColor: meta.color }}
       onClick={onCardClick}
+      onDoubleClick={onCardDoubleClick}
     >
       <Handle type="source" position={Position.Top}    className="sb-handle" id="t" />
       <Handle type="source" position={Position.Right}  className="sb-handle" id="r" />

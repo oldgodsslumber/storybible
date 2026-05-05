@@ -142,6 +142,19 @@ export function CanvasView() {
   const cardById = useMemo(() => new Map(cards.map((c) => [c.id, c])), [cards]);
   const placedCardIds = useMemo(() => new Set(placements.map((p) => p.cardId)), [placements]);
 
+  // Hide placements whose card type isn't currently visible. Connections to
+  // hidden cards are filtered out implicitly because the edge mapping only
+  // renders edges where both endpoints have a visible placement.
+  const typeFilter = useProjectStore((s) => s.typeFilter);
+  const visiblePlacements = useMemo(
+    () =>
+      placements.filter((p) => {
+        const card = cardById.get(p.cardId);
+        return card ? typeFilter.has(card.type) : false;
+      }),
+    [placements, cardById, typeFilter],
+  );
+
   // We mix card nodes and annotation nodes in one array. The 'type' string
   // routes each to the right renderer via nodeTypes above.
   type AnyNodeData = CardNodeData | StickyNodeData | TextNodeData | RectNodeData | LineNodeData;
@@ -149,7 +162,7 @@ export function CanvasView() {
 
   const nodes: Node<AnyNodeData>[] = useMemo(() => {
     const out: Node<AnyNodeData>[] = [];
-    for (const p of placements) {
+    for (const p of visiblePlacements) {
       const card = cardById.get(p.cardId);
       if (!card) continue;
       out.push({
@@ -172,11 +185,11 @@ export function CanvasView() {
       });
     }
     return out;
-  }, [placements, cardById, selectedCardId, expandedPlacementIds, annotations, selectedAnnotationId]);
+  }, [visiblePlacements, cardById, selectedCardId, expandedPlacementIds, annotations, selectedAnnotationId]);
 
   const edges: Edge[] = useMemo(() => {
     if (!project) return [];
-    const placementByCardId = new Map(placements.map((p) => [p.cardId, p]));
+    const placementByCardId = new Map(visiblePlacements.map((p) => [p.cardId, p]));
     return connections
       .filter((c) => placementByCardId.has(c.fromCardId) && placementByCardId.has(c.toCardId))
       .map((c) => {
@@ -201,7 +214,7 @@ export function CanvasView() {
           selected: c.id === selectedConnectionId,
         } as Edge;
       });
-  }, [connections, placements, project, selectedConnectionId]);
+  }, [connections, visiblePlacements, project, selectedConnectionId]);
 
   const annotationIds = useMemo(() => new Set(annotations.map((a) => a.id)), [annotations]);
 
@@ -210,10 +223,10 @@ export function CanvasView() {
   // Falls back to fitting all nodes if there are no placements yet.
   const fitViewOptions = useMemo(
     () =>
-      placements.length > 0
-        ? { padding: 0.2, maxZoom: 1, nodes: placements.map((p) => ({ id: p.id })) }
+      visiblePlacements.length > 0
+        ? { padding: 0.2, maxZoom: 1, nodes: visiblePlacements.map((p) => ({ id: p.id })) }
         : { padding: 0.2, maxZoom: 1 },
-    [placements],
+    [visiblePlacements],
   );
 
   const onNodesChange = useCallback(

@@ -17,10 +17,12 @@ import type {
   Card,
   CardPlacement,
   Canvas,
+  CardType,
   Connection,
   Position,
   Project,
 } from '@/schemas';
+import { CARD_TYPES } from '@/schemas';
 
 interface ProjectState {
   projectId: string | null;
@@ -39,6 +41,9 @@ interface ProjectState {
   libraryCollapsed: boolean;
   expandedPlacementIds: Set<string>;
   selectedAnnotationId: string | null;
+  // Set of card types currently *visible* on canvas + library. Defaults to
+  // every type. Empty set = nothing visible.
+  typeFilter: Set<CardType>;
 
   loadProject: (projectId: string) => void;
   unloadProject: () => void;
@@ -50,6 +55,9 @@ interface ProjectState {
   toggleLibrary: () => void;
   togglePlacementExpanded: (placementId: string) => void;
   selectAnnotation: (annotationId: string | null) => void;
+  toggleTypeFilter: (t: CardType) => void;
+  setAllTypesVisible: () => void;
+  setNoTypesVisible: () => void;
 
   // Local-first placement update with debounced Firestore write.
   updatePlacementPositionLocal: (placementId: string, position: Position) => void;
@@ -87,6 +95,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   libraryCollapsed: false,
   expandedPlacementIds: new Set<string>(),
   selectedAnnotationId: null,
+  typeFilter: new Set<CardType>(CARD_TYPES),
 
   loadProject: (projectId) => {
     get().unloadProject();
@@ -142,6 +151,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       detailCardId: null,
       expandedPlacementIds: new Set<string>(),
       selectedAnnotationId: null,
+      typeFilter: new Set<CardType>(CARD_TYPES),
     });
   },
 
@@ -171,6 +181,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   toggleLibrary: () => set((s) => ({ libraryCollapsed: !s.libraryCollapsed })),
   selectAnnotation: (annotationId) =>
     set({ selectedAnnotationId: annotationId, selectedCardId: null, selectedConnectionId: null }),
+  toggleTypeFilter: (t) =>
+    set((s) => {
+      const next = new Set(s.typeFilter);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return { typeFilter: next };
+    }),
+  setAllTypesVisible: () => set({ typeFilter: new Set<CardType>(CARD_TYPES) }),
+  setNoTypesVisible: () => set({ typeFilter: new Set<CardType>() }),
   updateAnnotationLocal: (annotationId, patch) => {
     set((s) => ({
       annotations: s.annotations.map((a) =>
