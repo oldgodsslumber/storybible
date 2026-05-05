@@ -14,15 +14,7 @@ html, body, #root { height: 100%; }
 
 /* Card node base */
 .sb-card-node {
-  @apply rounded-md border-2 bg-slate-900 text-slate-100 shadow-md min-w-[160px] max-w-[260px];
-}
-
-.sb-card-node header {
-  @apply px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-900;
-}
-
-.sb-card-node .sb-body {
-  @apply px-2 py-1 text-sm whitespace-pre-wrap break-words;
+  @apply rounded border bg-slate-900 text-slate-100 shadow-sm min-w-[120px] max-w-[220px] cursor-pointer;
 }
 
 .sb-handle {

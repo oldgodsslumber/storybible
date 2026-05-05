@@ -16,8 +16,9 @@ export function ProjectWorkspace({ projectId, onClose }: Props) {
   const loadProject = useProjectStore((s) => s.loadProject);
   const unloadProject = useProjectStore((s) => s.unloadProject);
   const project = useProjectStore((s) => s.project);
-  const selectedCardId = useProjectStore((s) => s.selectedCardId);
+  const detailCardId = useProjectStore((s) => s.detailCardId);
   const selectedConnectionId = useProjectStore((s) => s.selectedConnectionId);
+  const libraryCollapsed = useProjectStore((s) => s.libraryCollapsed);
 
   useEffect(() => {
     loadProject(projectId);
@@ -32,14 +33,14 @@ export function ProjectWorkspace({ projectId, onClose }: Props) {
     <div className="flex h-full flex-col">
       <Topbar onClose={onClose} />
       <div className="flex flex-1 overflow-hidden">
-        <Library />
+        {!libraryCollapsed && <Library />}
         <div className="relative flex-1">
           <ReactFlowProvider>
             <CanvasView />
           </ReactFlowProvider>
         </div>
-        {selectedCardId && <CardDetail />}
-        {selectedConnectionId && !selectedCardId && <ConnectionEditor />}
+        {detailCardId && <CardDetail />}
+        {selectedConnectionId && !detailCardId && <ConnectionEditor />}
       </div>
     </div>
   );

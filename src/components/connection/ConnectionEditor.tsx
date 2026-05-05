@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { deleteConnection, updateConnection, updateProject } from '@/firebase/db';
 import type { ConnectionType } from '@/schemas/connectionType';
 import { nanoid } from 'nanoid';
+import { useClickAway } from '@/lib/useClickAway';
 
 export function ConnectionEditor() {
   const projectId = useProjectStore((s) => s.projectId);
@@ -16,6 +17,9 @@ export function ConnectionEditor() {
     () => connections.find((c) => c.id === selectedConnectionId) ?? null,
     [connections, selectedConnectionId],
   );
+
+  const panelRef = useRef<HTMLElement>(null);
+  useClickAway(panelRef, () => selectConnection(null), !!conn);
 
   const [newTypeLabel, setNewTypeLabel] = useState('');
   const [newTypeColor, setNewTypeColor] = useState('#94a3b8');
@@ -38,6 +42,19 @@ export function ConnectionEditor() {
     selectConnection(null);
   }
 
+  async function flipDirection() {
+    await updateConnection(projectId!, conn!.id, {
+      fromCardId: conn!.toCardId,
+      toCardId: conn!.fromCardId,
+      sourceHandle: conn!.targetHandle,
+      targetHandle: conn!.sourceHandle,
+    });
+  }
+
+  async function toggleGhost() {
+    await updateConnection(projectId!, conn!.id, { ghost: !conn!.ghost });
+  }
+
   async function addNewType() {
     if (!newTypeLabel.trim()) return;
     const t: ConnectionType = {
@@ -53,7 +70,7 @@ export function ConnectionEditor() {
   }
 
   return (
-    <aside className="flex w-96 flex-col border-l border-slate-800 bg-slate-900">
+    <aside ref={panelRef} className="flex w-96 flex-col border-l border-slate-800 bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
           Connection
@@ -62,12 +79,31 @@ export function ConnectionEditor() {
       </div>
 
       <div className="flex-1 space-y-3 overflow-auto p-3 text-sm">
+        {/* Directional preview with flip button. Reads "<from> <label> <to>". */}
         <div className="rounded border border-slate-800 bg-slate-950 p-2 text-xs">
-          <div className="text-slate-500">From</div>
-          <div>{fromCard?.title || '(missing card)'}</div>
-          <div className="mt-1 text-slate-500">To</div>
-          <div>{toCard?.title || '(missing card)'}</div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">Direction</span>
+            <button
+              onClick={flipDirection}
+              title="Swap from / to"
+              className="rounded border border-slate-700 px-2 py-0.5 text-[10px] hover:bg-slate-800"
+            >
+              ↔ flip
+            </button>
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+            <span className="font-medium text-slate-100">{fromCard?.title || '(missing)'}</span>
+            <span className="italic text-slate-400">
+              {conn.label || project.connectionTypes.find((t) => t.id === conn.type)?.label || conn.type}
+            </span>
+            <span className="font-medium text-slate-100">{toCard?.title || '(missing)'}</span>
+          </div>
         </div>
+
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={!!conn.ghost} onChange={toggleGhost} />
+          <span>Ghost connection (dim line, hide label on canvas)</span>
+        </label>
 
         <div>
           <label className="mb-1 block text-[10px] uppercase tracking-wide text-slate-500">Type</label>

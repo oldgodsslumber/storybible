@@ -45,3 +45,8 @@ export const versionsCol = (projectId: string) =>
   collection(db, 'projects', projectId, 'versions');
 export const versionDoc = (projectId: string, versionId: string) =>
   doc(db, 'projects', projectId, 'versions', versionId);
+
+export const annotationsCol = (projectId: string) =>
+  collection(db, 'projects', projectId, 'annotations');
+export const annotationDoc = (projectId: string, annotationId: string) =>
+  doc(db, 'projects', projectId, 'annotations', annotationId);

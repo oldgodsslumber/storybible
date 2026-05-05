@@ -27,10 +27,14 @@ import {
   type Project,
   type CardType,
   type Position,
+  AnnotationSchema,
+  type Annotation,
 } from '@/schemas';
 import { DEFAULT_CONNECTION_TYPES } from '@/schemas/connectionType';
 import { db } from './config';
 import {
+  annotationDoc,
+  annotationsCol,
   canvasDoc,
   canvasesCol,
   cardDoc,
@@ -76,10 +80,13 @@ export async function createProject(name: string, ownerId: string): Promise<Proj
     createdAt: now,
     updatedAt: now,
   };
-  const batch = writeBatch(db);
-  batch.set(projectDoc(id), project);
+  // Write the project doc FIRST, then the seed canvases. Firestore security
+  // rules evaluate each doc in a batch independently and `get(parent)` sees
+  // the pre-batch state — batching project + subcollection writes would
+  // make the subcollection rule check fail because the parent doesn't yet
+  // exist for the rule's get() call.
+  await setDoc(projectDoc(id), project);
 
-  // Seed canvases: one freeform, one scene-5-act
   const freeformId = nanoid();
   const sceneId = nanoid();
   const freeform: Canvas = {
@@ -98,6 +105,7 @@ export async function createProject(name: string, ownerId: string): Promise<Proj
     viewState: { pan: { x: 0, y: 0 }, zoom: 1 },
     createdAt: now,
   };
+  const batch = writeBatch(db);
   batch.set(canvasDoc(id, freeformId), freeform);
   batch.set(canvasDoc(id, sceneId), scene);
   await batch.commit();
@@ -278,7 +286,7 @@ export async function createConnection(
   fromCardId: string,
   toCardId: string,
   type: string,
-  label = '',
+  opts: { label?: string; sourceHandle?: string; targetHandle?: string } = {},
 ): Promise<Connection> {
   const id = nanoid();
   const conn: Connection = {
@@ -287,7 +295,10 @@ export async function createConnection(
     fromCardId,
     toCardId,
     type,
-    label,
+    label: opts.label ?? '',
+    ghost: false,
+    ...(opts.sourceHandle ? { sourceHandle: opts.sourceHandle } : {}),
+    ...(opts.targetHandle ? { targetHandle: opts.targetHandle } : {}),
     createdAt: Date.now(),
   };
   await setDoc(connectionDoc(projectId, id), conn);
@@ -304,4 +315,39 @@ export async function updateConnection(
 
 export async function deleteConnection(projectId: string, connectionId: string) {
   await deleteDoc(connectionDoc(projectId, connectionId));
+}
+
+// ---------------- Annotations (canvas-scoped) ----------------
+
+export function watchAnnotations(
+  projectId: string,
+  canvasId: string,
+  cb: (annotations: Annotation[]) => void,
+): Unsubscribe {
+  const q = query(annotationsCol(projectId), where('canvasId', '==', canvasId));
+  return onSnapshot(q, (snap) => {
+    const out: Annotation[] = [];
+    for (const d of snap.docs) {
+      const parsed = AnnotationSchema.safeParse(d.data());
+      if (parsed.success) out.push(parsed.data);
+    }
+    cb(out);
+  });
+}
+
+export async function createAnnotation(annotation: Annotation): Promise<Annotation> {
+  await setDoc(annotationDoc(annotation.projectId, annotation.id), annotation);
+  return annotation;
+}
+
+export async function updateAnnotation(
+  projectId: string,
+  annotationId: string,
+  patch: Record<string, unknown>,
+) {
+  await updateDoc(annotationDoc(projectId, annotationId), patch);
+}
+
+export async function deleteAnnotation(projectId: string, annotationId: string) {
+  await deleteDoc(annotationDoc(projectId, annotationId));
 }

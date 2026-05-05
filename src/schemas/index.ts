@@ -7,3 +7,4 @@ export * from './placement';
 export * from './connection';
 export * from './canvas';
 export * from './version';
+export * from './annotation';

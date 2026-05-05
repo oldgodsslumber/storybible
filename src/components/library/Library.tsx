@@ -1,19 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { CARD_TYPES, CARD_TYPE_META, type CardType } from '@/schemas';
-import { createCard, deleteCard } from '@/firebase/db';
+import { deleteCard } from '@/firebase/db';
 
 export function Library() {
   const projectId = useProjectStore((s) => s.projectId);
   const cards = useProjectStore((s) => s.cards);
   const placements = useProjectStore((s) => s.placements);
   const activeCanvasId = useProjectStore((s) => s.activeCanvasId);
-  const selectCard = useProjectStore((s) => s.selectCard);
+  const openDetail = useProjectStore((s) => s.openDetail);
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<Set<CardType>>(new Set());
   const [tagFilter, setTagFilter] = useState<string>('');
-  const [creatingType, setCreatingType] = useState<CardType>('character');
 
   const placedCardIds = useMemo(
     () => new Set(placements.filter((p) => p.canvasId === activeCanvasId).map((p) => p.cardId)),
@@ -47,12 +46,6 @@ export function Library() {
     });
   }
 
-  async function handleCreate() {
-    if (!projectId) return;
-    const c = await createCard(projectId, creatingType, 'New ' + CARD_TYPE_META[creatingType].label);
-    selectCard(c.id);
-  }
-
   async function handleDelete(cardId: string) {
     if (!projectId) return;
     if (!confirm('Delete card and all its placements & connections?')) return;
@@ -67,23 +60,6 @@ export function Library() {
   return (
     <aside className="flex w-72 flex-col border-r border-slate-800 bg-slate-900">
       <div className="border-b border-slate-800 p-3">
-        <div className="mb-2 flex gap-2">
-          <select
-            value={creatingType}
-            onChange={(e) => setCreatingType(e.target.value as CardType)}
-            className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs"
-          >
-            {CARD_TYPES.map((t) => (
-              <option key={t} value={t}>{CARD_TYPE_META[t].label}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleCreate}
-            className="rounded bg-sky-500 px-3 py-1 text-xs font-medium text-white hover:bg-sky-400"
-          >
-            + Card
-          </button>
-        </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -125,7 +101,9 @@ export function Library() {
 
       <ul className="flex-1 overflow-auto">
         {filtered.length === 0 && (
-          <li className="p-4 text-center text-xs text-slate-500">No cards match.</li>
+          <li className="p-4 text-center text-xs text-slate-500">
+            No cards yet. Drag a chip from the top toolbar onto the canvas, or onto an existing card.
+          </li>
         )}
         {filtered.map((c) => {
           const meta = CARD_TYPE_META[c.type];
@@ -135,7 +113,7 @@ export function Library() {
               key={c.id}
               draggable
               onDragStart={(e) => onDragStart(e, c.id)}
-              onClick={() => selectCard(c.id)}
+              onClick={() => openDetail(c.id)}
               className="group flex cursor-grab items-start gap-2 border-b border-slate-800 px-3 py-2 hover:bg-slate-800"
             >
               <span
