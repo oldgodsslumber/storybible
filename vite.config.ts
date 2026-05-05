@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
-export default defineConfig({
+// `base` controls the public path under which the built assets are served.
+// On GitHub Pages the site lives at /storybible/, so production builds need
+// that prefix. Local dev (`npm run dev`) is served at /, so we leave it
+// alone there to avoid double-prefix breakage.
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/storybible/' : '/',
   plugins: [
     react(),
     VitePWA({
@@ -27,4 +32,4 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, 'src') },
   },
   server: { port: 5173 },
-});
+}));
