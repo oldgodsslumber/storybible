@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function projectOwnerId(projectId) {
+      return get(/databases/$(db)/documents/projects/$(projectId)).data.ownerId;
+    }
+
+    function ownsProject(projectId) {
+      return isSignedIn() && projectOwnerId(projectId) == request.auth.uid;
+    }
+
+    // /users/{uid}
+    match /users/{uid} {
+      allow read, write: if isUser(uid);
+    }
+
+    // /projects/{projectId}
+    match /projects/{projectId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Subcollections — only the project owner.
+      match /{sub}/{docId} {
+        allow read, write: if ownsProject(projectId);
+      }
+    }
+  }
+}

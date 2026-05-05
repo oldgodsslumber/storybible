@@ -1,0 +1,37 @@
+@import 'reactflow/dist/style.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+
+.react-flow__attribution { display: none !important; }
+
+.react-flow__node {
+  font-family: inherit;
+}
+
+/* Card node base */
+.sb-card-node {
+  @apply rounded-md border-2 bg-slate-900 text-slate-100 shadow-md min-w-[160px] max-w-[260px];
+}
+
+.sb-card-node header {
+  @apply px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-900;
+}
+
+.sb-card-node .sb-body {
+  @apply px-2 py-1 text-sm whitespace-pre-wrap break-words;
+}
+
+.sb-handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: #94a3b8 !important;
+  border: 2px solid #0f172a !important;
+}
+
+.sb-card-node.selected {
+  @apply ring-2 ring-sky-400;
+}

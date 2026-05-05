@@ -1,0 +1,259 @@
+Story Bible App
+Build Specification — v3
+Introduction
+A spatial story bible for writers. Story bibles manage characters, locations, scenes, and other narrative elements that a writer needs to keep coherent across a long-form work. Most existing tools (World Anvil, Notion templates, Scrivener) lean on wiki-style architecture, which is great for reference and bad for thinking. This app takes a different approach: it uses a Freeform/Milanote-style infinite canvas where users drop cards and connect them, then layers LLM assistance on top of that spatial structure.
+The key insight is that story-bible work is relational, not hierarchical. A character lives in a place, opposes another character, embodies a theme, appears in three scenes. Wikis force that into nested pages; canvases let it stay relational.
+Goals
+Fast — feels like a sketchpad, not a database.
+Easy to use — drop cards, drag connections, done.
+Visual — the canvas is the primary interface, not a fallback view.
+Connected — every element can link to every other element with typed relationships.
+Generative — LLM expands and recommends elements based on existing context.
+LLM-agnostic — works with cloud and local models.
+Exportable — Markdown, JSON, PNG, and treatment views, so writers always own their data.
+Scales to novel-sized projects — designed for 1,000+ cards per project.
+Non-goals (v1)
+Real-time multi-user collaboration.
+Full mobile editing parity (mobile is read + light-edit only for v1).
+Replacing the writing app itself — this is a planning tool, not a manuscript editor.
+A plugin/extension system.
+Cross-device LLM settings sync (deferred to v1.1).
+User-created purpose canvases beyond freeform + scene (deferred to v1.1).
+
+1. Stack &amp; Architecture Decisions
+These are committed choices for v1. Documenting them here so the implementation does not drift.
+Frontend
+React 18 + TypeScript + Vite. TypeScript is non-negotiable — the data model is graph-shaped and types catch the kinds of bugs that show up otherwise.
+React Flow for the canvas. It handles nodes, edges, pan, zoom, minimap, connection handles, and selection out of the box. Implementing this from scratch is a multi-week detour from the actual product.
+React Flow virtualization enabled (onlyRenderVisibleElements). Required to scale to 1,000+ cards per project without performance issues.
+Zustand for client state. Lighter than Redux, plays well with React Flow. Use one store per project loaded.
+Tailwind CSS for styling. Pairs well with shadcn/ui for card detail panels, dialogs, and settings UI.
+PWA via vite-plugin-pwa. Installable on desktop and mobile, with an offline shell for read access.
+Dexie (IndexedDB wrapper) for local storage of LLM settings and API keys.
+Backend &amp; data
+Firebase Auth (Google sign-in) for identity.
+Firestore for project storage. One document per Project; cards, connections, placements, canvases, and versions as subcollections. Real-time listeners handle live updates if a user has the app open in two windows.
+IndexedDB (via Dexie) for LLM provider settings and API keys — local-only in v1, never written to Firestore. Trades cross-device sync for simpler privacy story; revisit in v1.1.
+No custom server for v1. Firestore security rules enforce per-user access. LLM calls go directly from the client to the provider, using the user&apos;s key from IndexedDB.
+LLM provider abstraction
+All LLM access goes through a single LlmProvider interface. Adapters implement it for each backend. This is the single most important architectural decision for keeping the LLM features sane.
+interface LlmProvider {
+  generate(prompt: string, opts: GenerateOpts): Promise&lt;string&gt;;
+  generateStructured&lt;T&gt;(prompt: string, schema: ZodSchema&lt;T&gt;): Promise&lt;T&gt;;
+  isAvailable(): Promise&lt;boolean&gt;;
+}
+Adapters to ship with v1: Anthropic (Claude), OpenAI, Google (Gemini), Ooba/OpenAI-compatible local. Settings UI picks the provider; the rest of the app calls the abstract interface.
+Platform targets
+Desktop browser — full editing experience. Primary target.
+PWA installed on desktop — same experience, app-like presentation.
+Mobile (PWA) — read + light edits (rename card, edit body, adjust connections). No canvas dragging on mobile in v1; mobile gets a list view of cards by type with drill-down.
+
+2. Data Model
+The data model needs to exist before any UI work begins. Stub everything else against this schema.
+Entity
+Field
+Notes
+User
+id (Firebase UID), email, displayName, createdAt
+Lightweight identity record. No LLM settings here — those are local-only via IndexedDB in v1.
+Project
+id, name, ownerId, authorVoiceProfile, summaryText, summaryDirty, connectionTypes[], createdAt, updatedAt
+Top-level container. Multiple projects per user (sequels, separate works). summaryDirty flag drives lazy summary regeneration. connectionTypes is the per-project ontology, seeded with defaults on creation.
+Card
+id, projectId, type, title, body, customFields, tags, alwaysIncludeInRag, createdAt, updatedAt
+Cards exist in the project independent of canvas placement. type ∈ {character, object, location, scene, dialogue, history, arc, theme, obstacle, descriptor, beat}. customFields is a flexible key/value map. alwaysIncludeInRag is the user-managed &quot;pin to context&quot; flag.
+CardPlacement
+id, cardId, canvasId, position {x,y}, createdAt
+Separates card existence from canvas placement. v1 enforces one placement per card per canvas; post-v1 allows multiple. Deleting a placement does not delete the card.
+Connection
+id, projectId, fromCardId, toCardId, label, type, createdAt
+Connections are project-level (between cards), not canvas-level. They render on every canvas where both endpoint cards are placed. Typed edges power filtering and color-coding.
+Canvas
+id, projectId, name, type, viewState {pan, zoom}, createdAt
+type ∈ {freeform, scene-5-act}. Each project gets one of each on creation. User-created purpose canvases deferred to v1.1.
+CardVersion
+id, cardId, body, createdAt, source
+Append-only history of card body changes. source ∈ {user, llm-rewrite, llm-expand}. Powers undo and version compare.
+
+Notes on the schema
+Cards exist independent of canvas placement. Creating a card does not auto-place it on a canvas — it appears in the library/search panel and must be dragged onto a canvas to render visually.
+CardPlacement separates &quot;card exists&quot; from &quot;card is here at position X.&quot; v1 enforces one placement per card per canvas. v1.1 relaxes this for user-created purpose canvases.
+Connections are project-level, not canvas-level. They render on any canvas where both endpoint cards happen to be placed.
+CardVersion is append-only. Never mutate or delete versions; this is the audit trail and undo system.
+summaryDirty on Project flips to true on any card create/update/delete. Next LLM call needing the summary checks the flag, regenerates if stale, then proceeds.
+alwaysIncludeInRag on Card is the user-managed &quot;pin to context&quot; flag for main characters, central themes, and project-defining cards.
+connectionTypes on Project holds the per-project ontology, seeded with defaults (lives-in, knows, opposes, etc.) on creation. Users can add custom types.
+Scaling target: The model is designed for 1,000+ cards per project. A typical novel project has 30–80 characters, 50–150 locations and objects, 60–120 scenes, and 20–50 themes/arcs/history beats, plus descriptors, dialogue, and obstacles. React Flow virtualization combined with curated canvas placement (not every card lives on every canvas) keeps the UI responsive at this scale.
+
+3. Build Order &amp; Milestones
+Build in this order. Do not skip ahead. Each milestone produces a usable artifact.
+Milestone
+Theme
+Scope
+M1
+Core canvas + cards + library
+Auth (Firebase + Google), data model with CardPlacement, freeform canvas via React Flow with virtualization, library/search panel, card CRUD for all types, typed connections with project-level ontology, multiple projects per user. No LLM, no scene view yet.
+M2
+Scene view + export
+5-act scene canvas with column structure, scene cards with short/long descriptions, beat sub-cards, x-ray view, ghost mode, Markdown export, JSON export, PNG export, treatment-style scene export.
+M3
+LLM integration + RAG
+LLM provider abstraction with adapters (Anthropic, OpenAI, Google, Ooba), local-only API key storage via IndexedDB, smart RAG (one-hop + always-include + project summary), lazy summary regeneration via dirty flag, card-level LLM actions, review tray for proposed changes.
+M4
+Voice + polish
+Author voice training from writing sample, voice applied to all generations, on-demand contradiction detector, card heat (connection-weighted styling), card versioning UI with history tab.
+v1.1
+Near-term post-v1
+User-created purpose canvases (relationship view, worldbuilding view, themes view), with cards placeable on multiple canvases. Cross-device LLM settings sync.
+Post-v1
+Deferred
+Mobile editing parity, real-time collaboration, plugin system, additional export formats (Scrivener, Final Draft), cross-project references for series/sequels.
+
+The single most important rule: M1 ships without any LLM features. A spatial card tool with typed connections, a library, and Firebase sync is already useful on its own. Layering LLM features on top of a working foundation is much easier than debugging both at once.
+
+4. M1 — Core Canvas, Cards, &amp; Library
+Card types
+Each card type renders with a distinct color and icon, but shares the same base structure (title, body, customFields, tags, alwaysIncludeInRag).
+Character — name as title, description as body, fields for age/role/etc.
+Object — significant items, props, or artifacts.
+Location — places, settings, regions.
+Scene — narrative beats; have short and long descriptions.
+Dialogue — memorable lines, exchanges.
+History — past events, backstory anchors.
+Arc — character or plot trajectories.
+Theme — abstract ideas the work is about.
+Obstacle — conflicts, problems, antagonistic forces.
+Descriptor — sensory details, fragments, tone notes.
+Beat — sub-scene moments (used in nested scene structure in M2).
+Library / search panel
+A persistent sidebar listing every card in the project. Filter by card type, tag, or search by title. Drag from the library to the canvas to place a card. This means the canvas is curated, not a dump of everything in the project.
+Filterable by card type (multi-select).
+Searchable by title and body content.
+Filterable by tag.
+Indicates whether a card is currently placed on the active canvas (with a small placement indicator).
+&quot;Create new card&quot; button at top, with type picker — adds card to the library without placing it.
+Drag a library card onto the canvas to create a CardPlacement.
+Removing a placement (delete-from-canvas action) leaves the card in the library; deleting from the library removes the card and all its placements and connections.
+Canvas behavior
+Infinite pan/zoom via React Flow with virtualization on.
+Drop new cards by dragging from the library or via right-click &quot;create card here&quot; menu.
+Each card has connection handles on all four sides; drag from a handle to another card to create a connection.
+Click a connection to assign or change its type and label.
+Multi-select with shift+click or marquee. Bulk move, remove-from-canvas, and group-into-area.
+Minimap in the corner.
+Auto-save with debounced writes to Firestore (1–2 seconds idle). React Flow fires position updates on every frame during drag — debouncing is critical.
+Typed connections
+Every connection has a type from the project&apos;s ontology, plus an optional human-readable label. Typed edges power x-ray filtering, color-coding, and structured LLM queries.
+Default types seeded on project creation: lives-in, knows, wants, opposes, parent-of, member-of, appears-in, owns.
+Each type has a default color used in x-ray view.
+Users can add custom types per project.
+Connections are directional; rendering shows an arrowhead.
+Multiple projects
+A user can have many projects (one per work — sequels, separate novels, RPG campaigns). The app shell shows a project list on launch; opening a project loads its data into a per-project Zustand store. Cross-project references are out of scope for v1.
+
+5. M2 — Scene View &amp; Export
+5-act scene canvas
+A second canvas type, distinct from the freeform canvas. Five fixed columns (Setup, Rising Action, Midpoint, Falling Action, Resolution — exact labels configurable). Scene cards are placed into columns to build the narrative. Other card types can still be placed and connected, but the column structure is enforced for scenes.
+Scene cards
+Two body fields: short (card-visible) and long (opens in detail view).
+Beat sub-cards. Click a scene to expand its beats inline. Lets the same canvas serve outline-level and beat-level planning.
+Scene order within a column is meaningful (top-to-bottom = chronological).
+X-ray view
+A canvas mode (toggle button in the toolbar) that dims everything except the selected card and its connections. Connection types are color-coded. Click another card while in x-ray mode to see only the relationships between the two. Replaces what the original spec called &quot;Connector View&quot; — one unified relationship view instead of two overlapping ones.
+Ghost mode
+Click a character (or any card) on the scene canvas, and every scene that card is not connected to dims. Powerful for tracking POV, screen time, and continuity gaps. Toggle on/off from the toolbar.
+Export formats
+Markdown — entire project as a folder of .md files, one per card, with frontmatter and links. Works in Obsidian, VS Code, anywhere.
+JSON — full project export (cards, placements, connections, canvases, versions). The &quot;I own my data&quot; guarantee.
+PNG — current canvas, exported at high resolution.
+Treatment view — scene canvas exported as a flowing document, with options for short vs. long descriptions and with/without scene-title headings.
+
+6. M3 — LLM Integration &amp; RAG
+LLM settings storage
+LLM provider settings (which provider, which model, API keys, local endpoint URL for Ooba) live in IndexedDB on the user&apos;s device. They are not synced to Firestore in v1. This avoids the &quot;where does my API key live&quot; privacy question entirely and keeps the v1 scope tight.
+RAG strategy
+Naively dumping the whole project into the prompt breaks at scale and burns tokens. The smart strategy is to assemble a context window per call from four sources:
+The active card itself (full body).
+All cards directly connected to the active card (one hop, full body).
+Cards flagged alwaysIncludeInRag — typically main characters, central themes. User-managed.
+The project summary — auto-maintained via the dirty flag system below.
+This keeps prompt size predictable, scales to projects with thousands of cards, and produces relevant generations without flooding the model.
+Project summary lifecycle
+The project summary is a ~500-token LLM-generated description of the work, stored on Project.summaryText. It auto-maintains via a dirty flag:
+Project.summaryDirty starts true on a new project.
+Any card create, update, or delete sets summaryDirty = true.
+When an LLM call needs the summary, the system checks summaryDirty. If true, regenerate the summary first (one extra call), then proceed with the original request. Set summaryDirty = false.
+Result: the summary regenerates exactly when needed, exactly once per &quot;burst&quot; of edits. User never has to think about it.
+Manual &quot;regenerate now&quot; button available in project settings as an escape hatch.
+Card-level LLM actions
+Action
+Where it lives
+What it does
+Rewrite description
+Any card with a body field
+Sends current body + RAG context + voice profile, returns a polished version. Old version saved as CardVersion.
+Expand to descriptors
+Character, Theme, Arc cards
+Generates new descriptor cards in the library, pre-connected. User chooses whether to place them on the canvas.
+Suggest connections
+Card menu + x-ray view
+LLM proposes typed connections to other cards in the project; user reviews and approves in the review tray.
+Shorten for card
+Scene cards
+Compresses long body into a card-sized summary. Long version stays in card detail view.
+Fill holes
+Scene canvas
+Looks at scenes already placed in the 5-act structure and proposes missing scenes.
+Generate name
+Character cards
+Suggests a name based on connected cards (era, location, theme).
+Suggest perspectives
+Theme, Arc cards
+Given a theme, generates descriptor cards offering different angles on it (e.g., levels-of-wealth descriptors for a class theme).
+Detect contradictions
+Project-level, on demand
+Scans connected cards for inconsistencies and surfaces them for review. Manual trigger only.
+
+Approval flow (review tray)
+Any LLM action that creates new cards, modifies existing ones, or proposes connections drops the proposed change in a &quot;review tray&quot; rather than committing immediately. User approves, edits, or discards. This avoids the failure mode where users feel the app is making changes behind their back.
+
+7. M4 — Author Voice, Contradictions, &amp; Polish
+Author voice training
+In settings, the user pastes or uploads a writing sample (1,000–5,000 words). On &quot;process,&quot; the LLM analyzes it and produces a voice profile: a structured description of pacing, sentence length, vocabulary register, recurring stylistic markers, and tonal habits. Stored on Project.authorVoiceProfile.
+Every subsequent LLM generation includes the voice profile in the system prompt, so generated descriptions feel like the author wrote them. The user can review and edit the voice profile directly — it is human-readable text, not an opaque embedding.
+Voice profile refinement (optional)
+Periodically, the system can re-analyze the user&apos;s manually-written card bodies and refine the voice profile. Off by default, opt-in.
+Contradiction detector
+Project-level action, manual trigger only. The user clicks a button; the LLM scans connected cards for inconsistencies and surfaces them in the review tray: &quot;Card A says character is orphaned; Card B references their living mother.&quot; This is the kind of thing story bibles exist to prevent and that writers always miss. Genuine differentiator from any wiki-style tool.
+On-demand only in v1 — no scheduled scans. Avoids the notification-design problem and keeps token spend predictable.
+Card heat
+Cards with many connections render slightly larger or with a subtle glow proportional to connection count. Free signal — instantly shows which characters and themes are load-bearing in the story.
+Card versioning UI
+Every LLM rewrite saves the prior version as a CardVersion. Card detail view has a history tab — see prior versions, restore one, or compare side-by-side. Writers will want this within a week of using the app.
+
+8. Notes for Claude Code
+Specific guidance for the implementation pass:
+Build M1 end-to-end before starting M2. Resist the temptation to scaffold everything at once.
+Set up the data model as Zod schemas first. Generate TypeScript types from the schemas. Validate at every Firestore boundary.
+Write the LlmProvider interface and a stub adapter (returns canned responses) before writing real adapters. Lets M3 features be built and tested without burning API credits.
+Use Firestore subcollections, not nested arrays. Querying connections by fromCardId or toCardId, or placements by canvasId, is a frequent operation. Subcollection queries are fast; nested-array queries are not.
+Debounce auto-save to Firestore aggressively (1–2 seconds of idle). React Flow fires position updates on every frame during drag.
+Enable React Flow virtualization (onlyRenderVisibleElements) from day one. Do not retrofit it later when performance breaks.
+Treat the connection ontology as data on the Project entity, not as enums hardcoded in the app. Seed sensible defaults on project creation.
+When loading a project, hydrate cards and placements separately. The canvas only needs placements for the active canvas; the library needs all cards regardless of placement. Two queries, not one big join.
+When in doubt about UI patterns for the card detail view, look at Linear and Notion, not Milanote. Milanote inspires the canvas; Linear inspires the detail panels.
+Defer mobile editing. Build a mobile-friendly read view in M2 and stop there for v1. Canvas-on-mobile is a multi-week rabbit hole.
+When implementing the project summary dirty flag, use Firestore transactions to update summaryDirty atomically with card writes. Avoids race conditions where a summary regenerates from a half-written state.
+9. Resolved Decisions
+Decisions locked in during spec development, recorded here so future-you remembers why:
+LLM settings local-only via IndexedDB (no Firestore sync) — simpler privacy story, deferred cross-device sync to v1.1.
+Multiple projects in v1; user-created purpose canvases (relationship view, themes view, etc.) deferred to v1.1. Freeform + scene canvas only in v1.
+Cards exist independent of canvas placement (CardPlacement entity). Library/search panel is the source of truth; canvas is a curated view.
+Connections are project-level, not canvas-level. They render on any canvas where both endpoints happen to be placed.
+Project summary regenerates lazily via dirty flag, automatically and only when needed.
+Contradiction detector is on-demand only, manual trigger.
+React Flow virtualization on from day one. Plan for 1,000+ cards per project.
+
+
+End of spec.
+

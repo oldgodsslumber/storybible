@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "placements",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "canvasId", "order": "ASCENDING" },
+        { "fieldPath": "cardId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
